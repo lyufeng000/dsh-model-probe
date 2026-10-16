@@ -1,0 +1,17 @@
+{
+  "name": "dsh-model-probe",
+  "version": "0.1.0",
+  "description": "使用已存凭据询问模型厂商，比较目录并经官方配置编辑器安全写回。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": { ".": "./lib/index.js", "./client": "./lib/client.js", "./package.json": "./package.json" },
+  "files": ["lib", "cordis.patch.yml", "README.md"],
+  "keywords": ["dsh-plugin", "models"],
+  "license": "MIT",
+  "scripts": { "test": "node --test test/*.test.mjs" },
+  "peerDependencies": { "@deepseek-ai/cordis": "~4.0.4" },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "platform": "web", "inject": ["@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-modules", "@deepseek-ai/dsh-client-ui-settings"] }
+  }
+}
