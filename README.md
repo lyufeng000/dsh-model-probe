@@ -47,16 +47,20 @@ Codex 状态只区分缺记录、结构不支持、记录过期、读取失败�
 - OpenRouter 参数补全默认关闭；开启后发独立匿名请求，不携带当前厂商 key，不上传模型列表或提示词；只在 Host 用精确 ID 对照，失败保留原厂商结果。
 - Client/Host 协议版本不一致及 404/405 有完整重启提示。配置保存与热更新验证分别报告；保存成功后核对失败不会谎报“未保存”。
 
-## 本地安装与升级
+## 安装与升级
 
-**必须先得到用户对当前 profile 安装/启用的明确确认。**这是未发布的本地包，不能按 npm 包名安装。
+**必须先得到用户对当前 profile 安装/启用的明确确认。** 两条路：
 
-- 源码根目录作为 `link:<绝对源码目录>` 依赖登记。
-- bundle 为 `dsh-model-probe`，通过包内 patch 挂载 `model-probe`，Host 条目 ID 为 `include:model-probe`。不要再在 profile patch 中重复 insert。
+- **npm（普通用户）**：设置 → 插件 → 添加插件，填包名 `dsh-live-model-probe`（或 `dsh-live-model-probe@0.1.0` 锁定版本）。包名是 `dsh-live-model-probe`；仓库仍叫 [`lyufeng000/dsh-model-probe`](https://github.com/lyufeng000/dsh-model-probe)，npm 上原有的 `dsh-model-probe` 是别的作者的另一个插件，**不要**用这个名字。
+- **本地源码（开发）**：源码根目录作为 `link:<绝对源码目录>` 依赖登记。
+
+### 本地源码安装（开发用）
+
+- bundle 为 `dsh-live-model-probe`，通过包内 patch 挂载 `model-probe`，Host 条目 ID 为 `include:model-probe`。不要再在 profile patch 中重复 insert。
 - 安装前备份相关 profile 文件；通过官方插件管理器处理本地 bundle，检查依赖/锁文件仅作增量改动，不运行未经同意的构建脚本。
 - 同步插件治理账本、校验 JSON/YAML；本插件源码不放到治理目录或 DSH 安装目录中。
 - 安装/Host 更新后由用户**完全退出并重新打开 DSH**，不只是刷新页面。代理不得自停当前宿主。模型配置正常保存并验证热更新成功时则不需要重启。
-- 本地 link 插件只在“已安装”中出现，不会自动发布到 npm“发现”。
+- 本地 `link:` 依赖改源码即生效（Host 仍需完全重启）；npm 来源则要换版本重装。官方插件管理器目前**没有自动更新**，升级需卸载后重新安装。
 
 ## 测试复现（PowerShell，源码根目录）
 

@@ -1,4 +1,4 @@
 - insert:
     - id: model-probe
-      name: dsh-model-probe
+      name: dsh-live-model-probe
       disabled: false
