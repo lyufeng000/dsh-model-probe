@@ -1,96 +1,56 @@
-# DSH 模型探测 · 0.1.0
+# 原生模型列表在线获取 · 0.1.0
 
-在「设置 → 模型探测」中用 Host 已存 API key 查询厂商模型列表，与当前模型列表比较，然后通过官方配置编辑器预览、确认并采用。**列出模型不等于账号具备推理权限；本插件不调用推理接口。**
+透明增强 DSH 原有「设置 → 模型 → 获取可用模型」流程：普通获取立即读取配置和内置目录，只有显式点击「刷新 / 重试」才请求厂商。每个原生编辑器只有一个刷新按钮，打开选择弹窗后移入弹窗。
 
-已验证环境：Windows，DSH `0.2.0-rc.2`，Cordis `4.0.4`，pi-ai `0.87.1`；内嵌 Node `24.18.1` 和普通 Node `24.21.0`。其他 DSH 版本尚未验证。
+**没有独立“模型探测”设置页、卡片、手填表或额外的采用/写入流程。** 模型搜索、勾选、添加和保存仍由 DSH 原生界面负责。
 
-## 为什么不是点一下“获取可用模型”
+## 行为
 
-官方页面当前读取的是运行时模型服务目录，而不是每次重新访问厂商 `/models`。pi-ai 随包携带静态目录；账户能用的模型、厂商实时目录和这个快照并不等价。只刷新页面不会更新包内目录。本插件不替换官方「模型」页、不修改 DSH 核心，也不把缺失模型自动删除。
+- 普通获取、挂载和重新打开编辑器只读最新静态配置与内置目录，不解析凭据、不访问网络、不等旧请求。
+- 显式刷新才使用已有路由配置和凭据请求实时目录；不以静态目录或旧缓存冒充刷新成功。
+- 刷新复用该提供商原有获取动作；保留已有勾选、搜索文本及请求期间的新操作，不自动添加、删除或保存模型。
+- 刷新按钮沿用原生按钮样式，请求期间显示忙碌状态并避免重复触发。
+- 失败由原生流程和刷新按钮提示报告；保留当前列表与选择，但不声称旧目录是本次刷新结果。
+- **静态配置写入保留在原生保存流程中**：勾选、添加并保存后，由官方 ConfigEditor 写入当前 profile 的 `cordis.patch.yml`，不是仅把结果放进在线列表或缓存。
+- 原生添加逻辑丢弃的 `reasoningEfforts` 会在官方保存锁内补齐；只补用户已选模型的缺失字段，保留现有顺序、容量、兼容配置、手工推理设置及其他路由。
+- 思考能力按具体模型和实际协议映射，覆盖 Codex/OpenAI、Moonshot、xAI、Anthropic、Google、Mistral 和 OpenRouter。区分真实 effort、预算档位、开关、强制思考、明确不支持与未知；未知不写成 `false`，`ultra` 不冒充受支持档位。
+- 普通保存无需先刷新即可补齐已确认的内置能力；手工映射、显式删除及自定义 serializer 配置保持优先。
+- Gemini 4 Argon 的官方 LOW/MEDIUM/HIGH 需配套可逆请求修正，避免旧适配器把三档都发成自动预算。只作用于官方 Google 路由及精确型号，不改安装包、模型 ID、认证或重试。禁用插件也会卸载此修正；静态配置不会自行删除。
+- 模型 ID、容量和模态来自厂商、已安装目录或明确核验的官方资料。Argon 依据 [官方模型说明](https://ai.google.dev/gemini-api/docs/models/gemini-4-argon) 与 [思考参数文档](https://ai.google.dev/gemini-api/docs/thinking?hl=en)；用户既有容量不会被覆盖。
+- 本地 Qwen 等自定义兼容服务，在未确认后端和聊天模板前不虚构多档能力。仅凭模型名称或 `reasoning: true` 不足以证明支持特定参数。
 
-## v1 支持范围
+## 协议与安全
 
-| 类型 | 模型列表请求 | 能力与限制 |
-|---|---|---|
-| Google Generative AI | `{base}/models?pageSize=1000`，`x-goog-api-key` | 仅保留 `generateContent`；读取厂商上下文/输出上限，不凭模型名推测图片能力 |
-| OpenAI completions / responses、兼容网关 | `{base}/models`，Bearer API key | 标准 `data[]`，以及兼容的 `models[]` / `models{ID:信息}`；未知形状拒绝解析 |
-| Anthropic Messages | `{base}/v1/models?limit=1000`，`x-api-key` + `anthropic-version` | 列表解析；未提供的容量留空或按下述来源补全 |
-| OpenRouter | `{base}/models` | 可直接查询；也可显式勾选匿名参数补全 |
-| OpenAI Codex OAuth | **不查询** | v1 只显示本地登录记录状态并手填模型参数；未验证发现端点，不能声称一键同步或查询成功 |
-| 其他协议 | 不猜测 | 手填；兼容代理可显式选择已支持协议与地址后再查询 |
+支持 Google Generative AI、OpenAI completions/responses、OpenAI Codex OAuth、Anthropic Messages 和 OpenRouter 的模型列表接口。Codex 读取已有有效登录记录，请求官方 `backend-api/codex/models`；不刷新或改写 OAuth 登录记录。
 
-只取一页；识别到 `nextPageToken` / `has_more` 会标记列表可能不完整。不会自动翻页。空列表、认证失败、超时、格式不兼容不是删除现有模型的理由。
+凭据只在 Host 内解析并发往当前路由配置的服务地址，前端不接收 key、token 或 account ID。保留凭据隔离、响应大小限制、超时、取消、禁止凭据重定向等检查。未授权的草稿地址/协议变更不能继承已存凭据。
 
-参数逐字段优先级：**厂商响应 > 同 provider 精确 ID 的内置目录 > 用户开启的匿名 OpenRouter 精确 ID 估算 > 手填 > 省略**。界面标注来源；不做跨厂商模糊匹配。用户在手填表中主动修订的值按手填内容采用。
+只取一页；列出某个模型不等于已验证账号的实际推理权限。请求只获取目录，不发起模型推理。
 
-## 使用
+## 使用与启用
 
-1. 先在官方「模型」页配置凭据或登录。插件没有 API key / token 输入框。
-2. 打开「设置 → 模型探测」。普通 API 路由可查询，Codex 只有状态及手填区。
-3. 查询不写配置。对兼容代理改地址会先提示是否向该地址发送当前路由的凭据；仅本次查询生效，不保存地址。
-4. 勾选模型，或「载入勾选结果并修订」。手填区默认载入当前声明，支持 ID、名称、上下文、输出上限和 text/image 输入模态。数值必须是正整数；未知时留空。
-5. 点「预览写入」，检查新增、移除、完整前后模型字段和来源。**采用是整体替换该路由列表，不是自动追加；要保留的旧模型必须仍在列表内。**
-6. 再点「确认写入 profile」并确认弹窗。预览五分钟有效，单次使用；换选择、改手填内容或配置版本变化后需重新预览。
-7. 「恢复内置目录」删除显式 `models` 键，绝不写成空数组；「查看模型备份」可预览并确认恢复目标路由的旧模型字段。
+1. 在 DSH 原生模型页配置该提供商的凭据或完成登录。
+2. 确认本插件已启用。配置明确设置 `model-probe.disabled: true` 时，不会执行在线增强逻辑。
+3. 在原生模型卡片点击「获取可用模型」，在原有弹窗搜索、勾选或点击「刷新 / 重试」。
+4. 是否添加和保存始终由用户通过原生界面决定。
 
-Codex 状态只区分缺记录、结构不支持、记录过期、读取失败或本地记录看似有效。**看似有效不等于在线授权或推理权限有效**。过期/缺记录请到官方「模型 → OpenAI Codex」重新登录；插件不刷新、不修改、也不发送 OAuth access/refresh token 或 account ID。
+包名为 `dsh-live-model-probe`，仓库名为 `dsh-model-probe`。不要安装 npm 上其他作者的 `dsh-model-probe`。本地开发可将本仓库以 `link:` 形式登记为依赖。安装或改变插件启用状态须获得用户明确授权；插件不会自行启用自己。
 
-## 配置与安全边界
-
-- Host 唯一写入入口为官方 `configEditor.edit`，锁内再次核对 revision；不自行拼接 YAML，不旁路写 profile。
-- 仅改 `llm-pi-ai` 目标 provider 的 `models` / `modelOverrides`。采用显式列表时会先在预览中提示清除不兼容的旧 overrides，并将其备份。默认模型、其他路由、地址、凭据引用不变。
-- 备份在 profile 的 `.model-probe-backups` 目录，只保存目标路由的白名单模型字段，不复制整份 YAML 或凭据。全局保留最近五份合法备份；成功和失败写入都尝试轮换。磁盘清理失败会明确提示，可能暂时超过五份；无关/损坏文件不擅自删除。
-- 备份创建失败则不调用官方编辑器。备份含无法安全、无损保存的额外字段时拒绝写入，而不是静默截断。
-- API key 仅在 Host 读取并发给用户确认的目标服务；禁用重定向，错误不回显响应正文、请求头或底层异常。已知本次 key 若被厂商回显到可展示字段则拒绝返回；这不构成任意编码/任意第三方敏感内容的 DLP 保证。
-- 默认只允许 HTTPS；HTTP 仅允许 `localhost`、`127.0.0.1`、`[::1]`。地址禁止用户名、密码、查询参数和 fragment。用户仍须自行确认 HTTPS 自定义服务可信；不是全面的网络隔离/SSRF 沙箱。
-- 默认 20 秒超时；响应及单份备份最大 4 MiB；列表最多 10000 项；支持取消和卸载释放。不自动刷新、不后台轮询。
-- OpenRouter 参数补全默认关闭；开启后发独立匿名请求，不携带当前厂商 key，不上传模型列表或提示词；只在 Host 用精确 ID 对照，失败保留原厂商结果。
-- Client/Host 协议版本不一致及 404/405 有完整重启提示。配置保存与热更新验证分别报告；保存成功后核对失败不会谎报“未保存”。
-
-## 安装与升级
-
-**必须先得到用户对当前 profile 安装/启用的明确确认。** 两条路：
-
-- **npm（普通用户）**：设置 → 插件 → 添加插件，填包名 `dsh-live-model-probe`（或 `dsh-live-model-probe@0.1.0` 锁定版本）。包名是 `dsh-live-model-probe`；仓库仍叫 [`lyufeng000/dsh-model-probe`](https://github.com/lyufeng000/dsh-model-probe)，npm 上原有的 `dsh-model-probe` 是别的作者的另一个插件，**不要**用这个名字。
-- **本地源码（开发）**：源码根目录作为 `link:<绝对源码目录>` 依赖登记。
-
-### 本地源码安装（开发用）
-
-- bundle 为 `dsh-live-model-probe`，通过包内 patch 挂载 `model-probe`，Host 条目 ID 为 `include:model-probe`。不要再在 profile patch 中重复 insert。
-- 安装前备份相关 profile 文件；通过官方插件管理器处理本地 bundle，检查依赖/锁文件仅作增量改动，不运行未经同意的构建脚本。
-- 同步插件治理账本、校验 JSON/YAML；本插件源码不放到治理目录或 DSH 安装目录中。
-- 安装/Host 更新后由用户**完全退出并重新打开 DSH**，不只是刷新页面。代理不得自停当前宿主。模型配置正常保存并验证热更新成功时则不需要重启。
-- 本地 `link:` 依赖改源码即生效（Host 仍需完全重启）；npm 来源则要换版本重装。官方插件管理器目前**没有自动更新**，升级需卸载后重新安装。
-
-## 测试复现（PowerShell，源码根目录）
-
-普通 Node 单元测试（五项 DSH 集成测试在缺少 runtime 变量时跳过）：
+## 开发与验证
 
 ```powershell
-$env:DSH_MODEL_TEST_ROOT = '<临时工作目录>'
 node --test test/*.test.mjs
 ```
 
-真实 DSH 集成测试，用实际安装路径替换以下变量。`DSH_MODEL_TEST_READ_PROFILE` **只读**，测试创建独立 Include/临时 profile，不写这个 profile。
+普通 Node 测试覆盖零 I/O 静态发现、显式在线刷新、凭据隔离、全协议能力映射、原生保存、真实适配器离线序列化、单按钮迁移、重复点击保护、选择/搜索及请求中编辑保留、无额外页面和卸载清理。实际 DSH 集成测试须显式设置 `DSH_MODEL_TEST_RUNTIME`（DSH 0.2.1-rc.2 + pi-ai 1.1.0 的已解包运行时）和 `DSH_MODEL_TEST_ROOT`；离线推理清单测试须设置 `DSH_MODEL_TEST_INVENTORY`。缺少运行时条件时会标记跳过，不能将其算作通过。
 
-```powershell
-$env:ELECTRON_RUN_AS_NODE = '1'
-$env:DSH_MODEL_TEST_RUNTIME = '<DSH 安装目录>\resources\app.asar\dsh'
-$env:DSH_MODEL_TEST_ROOT = '<临时工作目录>'
-$env:DSH_MODEL_TEST_READ_PROFILE = "$env:USERPROFILE\.dsh\profiles\desktop"
-& '<DSH 安装目录>\DeepSeek Harness.exe' --expose-internals --test --test-isolation=none test/*.test.mjs
-```
+可选的 `node scripts/browser-smoke.mjs` 需要安装开发依赖，并显式设置 `DSH_MODEL_TEST_ROOT`（临时输出目录）、`DSH_MODEL_TEST_RUNTIME`（已核对的 DSH 解包目录）。`DSH_MODEL_TEST_DEPS_ROOT` 可指定现有开发依赖目录，`DSH_MODEL_TEST_BROWSER` 可指定 Chrome。该测试使用安装版列表逻辑和 Modal 结构，图标/焦点层使用测试替身，厂商返回为合成数据；不连接用户账号、不冒充当前 GUI 验收。
 
-真实浏览器测试复用这些变量，另可用 `DSH_MODEL_TEST_BROWSER` 指定 Chrome 可执行文件；默认 Windows Chrome 安装位置。测试开独立临时 profile 和 port 0 HTTP 服务，使用合成厂商响应，不使用真实 OAuth/API key；运行完释放临时 Host/浏览器，不替换当前 GUI。
+弹窗增强依赖 DSH `0.2.1-rc.2` 已核对的原生 DOM 结构（按钮、弹窗标题、候选行、搜索框与 0.2.0 相同）；结构不匹配时保持原生界面，不接管输入或保存流程。新增厂商目录与真实推理权限仍需分别验证。
 
-```powershell
-& '<DSH 安装目录>\DeepSeek Harness.exe' --expose-internals scripts/browser-smoke.mjs
-```
+## 兼容性
 
-测试需要 Electron ASAR 环境和 Chrome；普通 Node 不能代替 ASAR 集成运行器。临时输出在 `DSH_MODEL_TEST_ROOT`，截图/结果位置打印到日志；可复现的入口是 `scripts/browser-smoke.mjs`（历史验收脚本未随本仓库发布）。
-
-## 验收证据与尚未验证
-
-本轮开发的 P0–P5 验收报告、界面截图与测试/冒烟输出保存在作者本地，**未随本仓库发布**；下面列出仍然成立与尚未验证的边界。
-
-未验证：所有厂商的真实账号、模型推理权限、Codex 在线模型发现、真实 ACL 拒绝写入、断电/磁盘满、真实原子替换失败后的系统恢复。备份目录不可用已用“同名普通文件”故障注入验证，不冒充 ACL 测试；官方 schema/overlay 拒绝和真实热更新另有集成证据。不能把隔离测试通过称为用户当前桌面已安装验收。
+- `package.json` 的 `engines.dsh` 限定 `>=0.2.1-rc.2 <0.3.0`。
+- pi-ai 1.1.0 将 Azure 路由从 `azure-openai-responses` 更名为 `azure`。静态目录、原生保存和凭据引用仍可用；`azure-openai-responses` 协议没有可安全读取的在线列表接口，刷新会以 `AZURE_DISCOVERY_UNSUPPORTED` 明确拒绝（改用 `openai-completions` 的路由不受影响）。
+- `.model-probe-cache/catalogs.json` 现为 v3，带 DSH/pi-ai 兼容纪元与 pi-ai 目录代次；旧 v2/旧纪元缓存只读忽略，不会进入原生保存。
+- 备份文件保持 v1 结构，但新备份写入 `compat` 标记；升级前（无标记）的旧备份仍可列出，恢复会被 `LEGACY_BACKUP_UNSAFE` 明确拒绝，避免静默丢失 reasoningEfforts 或写入过期容量。

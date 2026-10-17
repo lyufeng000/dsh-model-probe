@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { configSnapshot } from '../lib/state.js';
 import { ProfileEditor } from '../lib/profile.js';
+import { hookNativeModelSave } from '../lib/native-save.js';
 
 const runtime = process.env.DSH_MODEL_TEST_RUNTIME, temp = process.env.DSH_MODEL_TEST_ROOT;
 const options = { skip: !runtime || !temp, timeout: 20000 };
@@ -38,6 +39,29 @@ async function fixture(overlay = false) {
   const engine = { snapshot: () => configSnapshot(ctx), jobs: new Map() }, editor = new ProfileEditor(ctx, engine);
   return { ctx, entry, editor, engine, dir, patchPath, close: async () => { editor.dispose(); await ctx.fiber.dispose(); } };
 }
+test('real cross-Fiber native save persists reasoning and publishes selectable levels', options, async () => {
+  const f = await fixture();
+  const efforts = { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' };
+  let dispose;
+  try {
+    const owner = f.ctx.plugin({ name: 'native-save-owner', inject: ['configEditor'], apply(c) {
+      dispose = hookNativeModelSave(c, { savedCatalogs: async () => [{ route: 'google', config: { models: [] }, models: [{ id: 'p5-new-model', reasoningEfforts: efforts }] }] });
+      c.effect(() => dispose);
+    } });
+    await owner.await(); assert.equal(owner.state, 2);
+    // Like the settings plugin, the caller sees a different scoped Service view.
+    const caller = f.ctx.plugin({ name: 'native-save-caller', inject: ['configEditor'], async apply(c) {
+      await c.configEditor.edit(f.entry, current => { current.providers.google.models.push(...proposed); return current; });
+    } });
+    await caller.await(); assert.equal(caller.state, 2);
+    const yaml = await readFile(f.patchPath, 'utf8');
+    assert.match(yaml, /reasoningEfforts:/);
+    const info = await f.ctx.llm.resolveModelInfo('google', 'p5-new-model');
+    assert.deepEqual(info.reasoning.efforts.map(x => x.id), Object.keys(efforts));
+    await owner.dispose();
+    assert.equal(Object.hasOwn(f.ctx.configEditor, 'edit'), false);
+  } finally { dispose?.(); await f.close(); }
+});
 const proposed = [{ id: 'p5-new-model', contextWindow: 1000, maxTokens: 200 }];
 const prepare = f => f.editor.preview({ route: 'google', revision: f.engine.snapshot().revision, action: 'adopt', models: proposed });
 const commit = (f, p) => f.editor.commit({ route: 'google', revision: p.revision, token: p.token, confirm: true }, 'adopt');

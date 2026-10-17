@@ -1,7 +1,7 @@
 {
   "name": "dsh-live-model-probe",
   "version": "0.1.0",
-  "description": "DSH 模型探测：用已存凭据询问模型厂商的实时目录，比较后经官方配置编辑器安全写回。",
+  "description": "增强 DSH 原生模型列表：静态即时获取、显式在线刷新及按真实协议持久化思考能力。",
   "type": "module",
   "main": "lib/index.js",
   "exports": { ".": "./lib/index.js", "./client": "./lib/client.js", "./package.json": "./package.json" },
@@ -13,7 +13,9 @@
   "bugs": { "url": "https://github.com/lyufeng000/dsh-model-probe/issues" },
   "author": "lyufeng000",
   "scripts": { "test": "node --test test/*.test.mjs" },
+  "engines": { "dsh": ">=0.2.1-rc.2 <0.3.0" },
   "peerDependencies": { "@deepseek-ai/cordis": "~4.0.4" },
+  "devDependencies": { "esbuild": "0.28.2", "react": "18.3.1", "react-dom": "18.3.1" },
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },
     "client": { "platform": "web", "inject": ["@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-modules", "@deepseek-ai/dsh-client-ui-settings"] }

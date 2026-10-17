@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ProfileEditor } from '../lib/profile.js';
-import { BackupStore, routeFields } from '../lib/backups.js';
+import { BackupStore, BACKUP_COMPAT, routeFields } from '../lib/backups.js';
 import { revisionOf } from '../lib/state.js';
 
 function fixture(options = {}) {
@@ -59,6 +60,29 @@ test('new models may be UNKNOWN_MODEL before adoption, while other metadata fail
 });
 test('preview token is one-use and payload cannot alter approved fields', async () => {
   const f = fixture(), p = await f.preview(); await f.editor.commit({ ...p, confirm: true, models: [{ id: 'injected' }] }, 'adopt'); assert.equal(f.state.current.providers.google.models[0].id, 'new'); await assert.rejects(f.commit(p), { code: 'PREVIEW_REQUIRED' });
+});
+test('backups label their compatibility and keep listing pre-0.2.1 files as legacy', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'model-probe-backup-')), store = new BackupStore(dir);
+  const saved = await store.save({ route: 'google', revision: 'r', fields: { models: [{ id: 'new-model' }] } });
+  const fresh = await store.read(saved.id);
+  assert.equal(fresh.compat, BACKUP_COMPAT);
+  assert.equal(fresh.legacy, false);
+  const id = '20261014-160019943-11111111-1111-1111-1111-111111111111';
+  await mkdir(store.dir, { recursive: true });
+  await writeFile(store.path(id), JSON.stringify({ version: 1, id, createdAt: '2026-10-14T16:00:19.943Z', route: 'google', revision: 'r', fields: { models: [{ id: 'gemini-4-argon', contextWindow: 262144 }] } }));
+  const legacy = await store.read(id);
+  assert.equal(legacy.compat, undefined);
+  assert.equal(legacy.legacy, true);
+  assert.equal((await store.list()).find(row => row.id === id).legacy, true);
+});
+test('rolling back a pre-0.2.1 backup is refused instead of silently dropping capabilities', async () => {
+  const f = fixture(), dir = await mkdtemp(join(tmpdir(), 'model-probe-backup-')), store = new BackupStore(dir);
+  const id = '20261014-160019943-22222222-2222-2222-2222-222222222222';
+  await mkdir(store.dir, { recursive: true });
+  await writeFile(store.path(id), JSON.stringify({ version: 1, id, createdAt: '2026-10-14T16:00:19.943Z', route: 'google', revision: 'r', fields: { models: [{ id: 'legacy' }] } }));
+  f.editor.backups = store;
+  await assert.rejects(f.preview('rollback', { backupId: id }), { code: 'LEGACY_BACKUP_UNSAFE' });
+  assert.equal(f.state.edits, 0);
 });
 test('unknown backup fields and normalized existing values fail closed; prototype IDs remain data', () => {
   assert.throws(() => routeFields({ models: [{ id: 'a', headers: { Authorization: 'secret' } }] }), { code: 'UNSAFE_BACKUP' });

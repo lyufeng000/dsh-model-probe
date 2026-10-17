@@ -93,8 +93,18 @@ test('real Loader + ConfigEditor + LLM load read-only Host from isolated Include
   const rows=result.result.value.routes;
   for(const route of ['google','openai-codex','xai']){const row=rows.find(x=>x.route===route);assert.ok(row);assert.equal(row.available,true);assert.ok(row.served.length>0);}
   assert.equal(typeof ctx.llm.discoveries.get('llm-pi-ai').__modelProbeWrapped,'function');
-  // With no credentials configured in this isolated test, discoverModels falls back to the built-in catalog on mount.
-  const fallbackModels=await ctx.llm.discoverModels('llm-pi-ai',{provider:'openai-codex'});
-  assert.ok(fallbackModels.length>0);
+  // Ordinary discovery is local even with unavailable credential services.
+  const local=await ctx.llm.discoverModels('llm-pi-ai',{provider:'openai-codex'});
+  assert.ok(local.some(model=>model.id==='gpt-6.1-sol'));
+  const google=await ctx.llm.discoverModels('llm-pi-ai',{provider:'google'});
+  assert.ok(google.some(model=>model.id==='gemini-4-argon'));
+  // The native DTO deliberately strips capability metadata; backend native-save
+  // supplementation uses the internal catalog, not this lossy projection.
+  const rawGoogle=await ctx.llm.discoveries.get('llm-pi-ai')({provider:'google'});
+  assert.deepEqual(rawGoogle.find(model=>model.id==='gemini-4-argon').reasoningEfforts,{low:'low',medium:'medium',high:'high'});
+  // Explicit refresh must not disguise missing credentials as a static success.
+  const refreshRequest=new Request('http://127.0.0.1/api/model-probe/refreshDiscovery',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'client-request',rpcId:'refresh',method:'model-probe/refreshDiscovery',payload:{provider:'openai-codex'}})});
+  const refresh=await(await routes.get('/api/model-probe/refreshDiscovery').fetch(refreshRequest)).json();
+  assert.equal(refresh.result.ok,false);assert.equal(refresh.result.error.code,'CODEX_RECORD_UNAVAILABLE');
   await probe.fiber.dispose();assert.equal(ctx.llm.discoveries.get('llm-pi-ai').__modelProbeWrapped,undefined);assert.equal(routes.size,0);await services.dispose();
 });
